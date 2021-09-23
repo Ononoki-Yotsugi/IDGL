@@ -60,7 +60,7 @@ def get_config(config_path="config.yml"):
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-config', '--config', required=True, type=str, help='path to the config file')
+    parser.add_argument('-config', '--config', default='config/cora/idgl.yml', type=str, help='path to the config file')
     parser.add_argument('--multi_run', action='store_true', help='flag: multi run')
     args = vars(parser.parse_args())
     return args

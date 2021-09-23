@@ -670,6 +670,7 @@ class ModelHandler(object):
         init_node_vec = features
 
         cur_raw_adj, cur_adj = network.learn_graph(network.graph_learner, init_node_vec, network.graph_skip_conn, graph_include_self=network.graph_include_self, init_adj=init_adj)
+        # cur_raw_adj是根据输入Z直接产生的adj, cur_adj是前者归一化并和原始adj加权求和的结果
         if self.config['graph_learn'] and self.config.get('max_iter', 10) > 0:
             cur_raw_adj = F.dropout(cur_raw_adj, network.config.get('feat_adj_dropout', 0), training=network.training)
         cur_adj = F.dropout(cur_adj, network.config.get('feat_adj_dropout', 0), training=network.training)
@@ -692,6 +693,9 @@ class ModelHandler(object):
             output = F.log_softmax(node_vec, dim=-1)
 
         else:
+            # 这里为什么不直接用network.encoder.forward? 经过测试是一样的
+            # 它要使用中间层的表示
+            '''
             node_vec = torch.relu(network.encoder.graph_encoders[0](init_node_vec, cur_adj))
             node_vec = F.dropout(node_vec, network.dropout, training=network.training)
 
@@ -703,10 +707,14 @@ class ModelHandler(object):
             # BP to update weights
             output = network.encoder.graph_encoders[-1](node_vec, cur_adj)
             output = F.log_softmax(output, dim=-1)
+            '''
+            node_vec, output = network.encoder(init_node_vec, cur_adj)
+            output = F.log_softmax(output, dim=-1)
 
 
         score = self.model.score_func(labels[idx], output[idx])
         loss1 = self.model.criterion(output[idx], labels[idx])
+        # 以上完成了第一次
 
         if self.config['graph_learn'] and self.config['graph_learn_regularization']:
             loss1 += self.add_graph_loss(cur_raw_adj, init_node_vec)
@@ -746,8 +754,9 @@ class ModelHandler(object):
 
             update_adj_ratio = self.config.get('update_adj_ratio', None)
             if update_adj_ratio is not None:
-                cur_adj = update_adj_ratio * cur_adj + (1 - update_adj_ratio) * first_adj
+                cur_adj = update_adj_ratio * cur_adj + (1 - update_adj_ratio) * first_adj   # 这里似乎和论文中有些出入？？
 
+            '''
             node_vec = torch.relu(network.encoder.graph_encoders[0](init_node_vec, cur_adj))
             node_vec = F.dropout(node_vec, self.config.get('gl_dropout', 0), training=network.training)
 
@@ -758,6 +767,9 @@ class ModelHandler(object):
 
             # BP to update weights
             output = network.encoder.graph_encoders[-1](node_vec, cur_adj)
+            output = F.log_softmax(output, dim=-1)
+            '''
+            node_vec, output = network.encoder(init_node_vec, cur_adj)
             output = F.log_softmax(output, dim=-1)
             score = self.model.score_func(labels[idx], output[idx])
             loss += self.model.criterion(output[idx], labels[idx])
@@ -771,7 +783,7 @@ class ModelHandler(object):
         if mode == 'test' and self.config.get('out_raw_learned_adj_path', None):
             out_raw_learned_adj_path = os.path.join(self.dirname, self.config['out_raw_learned_adj_path'])
             np.save(out_raw_learned_adj_path, cur_raw_adj.cpu())
-            print('Saved raw_learned_adj to {}'.format(out_raw_learned_adj_path))
+            print('Saved raw_learned_adj to {}'.format(out_raw_learned_adj_path))   # 这个输出怎么没见过？？
 
         if iter_ > 0:
             loss = loss / iter_ + loss1
@@ -785,6 +797,7 @@ class ModelHandler(object):
             self.model.optimizer.step()
 
         self._update_metrics(loss.item(), {'nloss': -loss.item(), self.model.metric_name: score}, 1, training=training)
+        print(iter_, loss, score)
         return output[idx], labels[idx]
 
 
@@ -1104,6 +1117,7 @@ class ModelHandler(object):
 
     def add_graph_loss(self, out_adj, features):
         # Graph regularization
+        # 图的正则化损失，包括smoothness,degree和sparsity
         graph_loss = 0
         L = torch.diagflat(torch.sum(out_adj, -1)) - out_adj
         graph_loss += self.config['smoothness_ratio'] * torch.trace(torch.mm(features.transpose(-1, -2), torch.mm(L, features))) / int(np.prod(out_adj.shape))

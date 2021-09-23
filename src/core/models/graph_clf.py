@@ -6,7 +6,7 @@ from ..layers.graphlearn import GraphLearner
 from ..layers.scalable_graphlearn import AnchorGraphLearner
 from ..layers.anchor import AnchorGCN
 from ..layers.common import dropout
-from ..layers.gnn import GCN, GAT, GraphSAGE
+from ..layers.gnn import GCN, GAT, GraphSAGE, GCN2
 from ..utils.generic_utils import to_cuda, normalize_adj
 from ..utils.constants import VERY_SMALL_NUMBER
 
@@ -31,13 +31,15 @@ class GraphClf(nn.Module):
 
         if self.graph_module == 'gcn':
             gcn_module = AnchorGCN if self.scalable_run else GCN
+            '''
             self.encoder = gcn_module(nfeat=nfeat,
                                 nhid=hidden_size,
                                 nclass=nclass,
                                 graph_hops=config.get('graph_hops', 2),
                                 dropout=self.dropout,
                                 batch_norm=config.get('batch_norm', False))
-
+            '''
+            self.encoder = GCN2(nfeat=nfeat, nhid=hidden_size, nclass=nclass, dropout=self.dropout, with_bias=False)
         elif self.graph_module == 'gat':
             self.encoder = GAT(nfeat=nfeat,
                                 nhid=hidden_size,
@@ -95,7 +97,7 @@ class GraphClf(nn.Module):
 
                 if self.graph_metric_type in ('kernel', 'weighted_cosine'):
                     assert raw_adj.min().item() >= 0
-                    adj = raw_adj / torch.clamp(torch.sum(raw_adj, dim=-1, keepdim=True), min=VERY_SMALL_NUMBER)
+                    adj = raw_adj / torch.clamp(torch.sum(raw_adj, dim=-1, keepdim=True), min=VERY_SMALL_NUMBER)   # 归一化
 
                 elif self.graph_metric_type == 'cosine':
                     adj = (raw_adj > 0).float()

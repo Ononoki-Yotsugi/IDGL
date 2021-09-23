@@ -60,12 +60,14 @@ class GraphLearner(nn.Module):
 
     def forward(self, context, ctx_mask=None):
         """
+        根据给的context返回一个相似矩阵
         Parameters
         :context, (batch_size, ctx_size, dim)
         :ctx_mask, (batch_size, ctx_size)
 
         Returns
         :attention, (batch_size, ctx_size, ctx_size)
+        这边的size对于图数据而言就没有第一维bs了
         """
         if self.metric_type == 'attention':
             attention = 0
@@ -81,9 +83,9 @@ class GraphLearner(nn.Module):
             if len(context.shape) == 3:
                 expand_weight_tensor = expand_weight_tensor.unsqueeze(1)
 
-            context_fc = context.unsqueeze(0) * expand_weight_tensor
+            context_fc = context.unsqueeze(0) * expand_weight_tensor   # (num_pers, num_node, dim)
             context_norm = F.normalize(context_fc, p=2, dim=-1)
-            attention = torch.matmul(context_norm, context_norm.transpose(-1, -2)).mean(0)
+            attention = torch.matmul(context_norm, context_norm.transpose(-1, -2)).mean(0)   # (num_node, num_node)
             markoff_value = 0
 
 
@@ -113,7 +115,7 @@ class GraphLearner(nn.Module):
 
         elif self.metric_type == 'cosine':
             context_norm = context.div(torch.norm(context, p=2, dim=-1, keepdim=True))
-            attention = torch.mm(context_norm, context_norm.transpose(-1, -2)).detach()
+            attention = torch.mm(context_norm, context_norm.transpose(-1, -2)).detach()   # (num_node, num_node)
             markoff_value = 0
 
 

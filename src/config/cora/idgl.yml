@@ -9,7 +9,7 @@ task_type: 'classification'
 out_dir: '../out/cora/idgl'
 
 
-seed: 42
+seed: 0
 
 # Run multiple times with different random seeds
 # seed:
@@ -87,7 +87,7 @@ rl_reward_metric: 'acc'
 rl_wmd_ratio: 0
 
 
-random_seed: 1234
+random_seed: 0
 shuffle: True # Whether to shuffle the examples during training
 max_epochs: 10000
 patience: 100
