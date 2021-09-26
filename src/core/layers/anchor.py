@@ -45,7 +45,7 @@ def batch_select_from_tensor(node_vec, idx, max_num_anchors, device=None):
 
 def compute_anchor_adj(node_anchor_adj, anchor_mask=None):
     '''Can be more memory-efficient'''
-    anchor_node_adj = node_anchor_adj.transpose(-1, -2)
+    anchor_node_adj = node_anchor_adj.transpose(-1, -2)   # (num_anchor, num_node)
     anchor_norm = torch.clamp(anchor_node_adj.sum(dim=-2), min=VERY_SMALL_NUMBER) ** -1
     # anchor_adj = torch.matmul(anchor_node_adj, torch.matmul(torch.diag(anchor_norm), node_anchor_adj))
     anchor_adj = torch.matmul(anchor_node_adj, anchor_norm.unsqueeze(-1) * node_anchor_adj)
@@ -119,6 +119,8 @@ class AnchorGCN(nn.Module):
 
 
     def forward(self, x, node_anchor_adj):
+        # 这里怎么只输入两个？
+        # 它没有使用这个forward
         for i, encoder in enumerate(self.graph_encoders[:-1]):
             x = F.relu(encoder(x, node_anchor_adj))
             x = F.dropout(x, self.dropout, training=self.training)
@@ -126,3 +128,58 @@ class AnchorGCN(nn.Module):
         x = self.graph_encoders[-1](x, node_anchor_adj)
 
         return x
+
+
+class AnchorGCN2(nn.Module):
+    def __init__(self, nfeat, nhid, nclass, graph_hops, dropout, batch_norm=False):
+        super(AnchorGCN2, self).__init__()
+        self.dropout = dropout
+        self.batch_norm = batch_norm
+        self.graph_hops = graph_hops
+
+        self.graph_encoders = nn.ModuleList()
+        self.graph_encoders.append(AnchorGCNLayer(nfeat, nhid, batch_norm=batch_norm))
+
+        for _ in range(graph_hops - 2):
+            self.graph_encoders.append(AnchorGCNLayer(nhid, nhid, batch_norm=batch_norm))
+
+        self.graph_encoders.append(AnchorGCNLayer(nhid, nclass, batch_norm=False))
+
+
+    def forward(self, x, init_adj, cur_node_anchor_adj, sampled_node_idx, graph_skip_conn, first=True, first_init_agg_vec=None,
+                init_agg_vec=None, update_adj_ratio=None, dropout=None, first_node_anchor_adj=None):
+
+        if dropout is None:
+            dropout = self.dropout
+
+        # layer 1
+        first_vec = self.graph_encoders[0](x, cur_node_anchor_adj, anchor_mp=True, batch_norm=False)
+        if first:
+            init_agg_vec = self.graph_encoders[0](x, init_adj, anchor_mp=False, batch_norm=False)
+        else:
+            first_vec = update_adj_ratio * first_vec + (1 - update_adj_ratio) * first_init_agg_vec
+        node_vec = (1-graph_skip_conn)*first_vec+graph_skip_conn*init_agg_vec
+        if self.batch_norm:
+            node_vec = self.graph_encoders[0].compute_bn(node_vec)
+        node_vec = F.dropout(torch.relu(node_vec), dropout, training=self.training)
+        anchor_vec = node_vec[sampled_node_idx]
+
+        # layer 2-n-1
+        for encoder in self.graph_encoders[1:-1]:
+
+            mid_cur_agg_vec = encoder(node_vec, cur_node_anchor_adj, anchor_mp=True, batch_norm=False)
+            if not first:
+                mid_cur_agg_vec = update_adj_ratio*mid_cur_agg_vec+(1-update_adj_ratio)*encoder(node_vec,first_node_anchor_adj,anchor_mp=True,batch_norm=False)
+            node_vec = (1 - graph_skip_conn) * mid_cur_agg_vec + graph_skip_conn * encoder(node_vec, init_adj, anchor_mp=False, batch_norm=False)
+            if self.batch_norm:
+                node_vec = encoder.compute_bn(node_vec)
+            node_vec = F.dropout(torch.relu(node_vec), dropout, training=self.training)
+            anchor_vec = node_vec[sampled_node_idx]
+
+        # layer n
+        cur_agg_vec = self.graph_encoders[-1](node_vec, cur_node_anchor_adj, anchor_mp=True, batch_norm=False)
+        if not first:
+            cur_agg_vec = update_adj_ratio * cur_agg_vec + (1-update_adj_ratio) * self.graph_encoders[-1](node_vec, first_node_anchor_adj, anchor_mp=True, batch_norm=False)
+        output = (1 - graph_skip_conn) * cur_agg_vec + graph_skip_conn * self.graph_encoders[-1](node_vec, init_adj, anchor_mp=False, batch_norm=False)
+        output = F.log_softmax(output, dim=-1)
+        return first_vec, init_agg_vec, node_vec, output

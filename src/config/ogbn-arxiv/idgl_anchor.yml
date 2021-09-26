@@ -10,7 +10,7 @@ out_dir: '../out/ogbn-arxiv/idgl_anchor'
 
 
 
-seed: 42
+seed: 0
 
 # Model architecture
 model_name: 'GraphClf'
@@ -106,4 +106,4 @@ logging: True # Turn it off for Codalab
 
 # Device
 no_cuda: False
-cuda_id: 0
+cuda_id: 2

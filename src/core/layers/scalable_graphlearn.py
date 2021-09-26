@@ -87,7 +87,7 @@ class AnchorGraphLearner(nn.Module):
             anchors_fc = anchors.unsqueeze(0) * expand_weight_tensor
             anchors_norm = F.normalize(anchors_fc, p=2, dim=-1)
 
-            attention = torch.matmul(context_norm, anchors_norm.transpose(-1, -2)).mean(0)
+            attention = torch.matmul(context_norm, anchors_norm.transpose(-1, -2)).mean(0)   # (num_node, num_anchor)
             markoff_value = 0
 
 

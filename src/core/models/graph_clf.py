@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 from ..layers.graphlearn import GraphLearner
 from ..layers.scalable_graphlearn import AnchorGraphLearner
-from ..layers.anchor import AnchorGCN
+from ..layers.anchor import AnchorGCN2
 from ..layers.common import dropout
 from ..layers.gnn import GCN, GAT, GraphSAGE, GCN2
 from ..utils.generic_utils import to_cuda, normalize_adj
@@ -30,16 +30,16 @@ class GraphClf(nn.Module):
         self.scalable_run = config.get('scalable_run', False)
 
         if self.graph_module == 'gcn':
-            gcn_module = AnchorGCN if self.scalable_run else GCN
-            '''
+            gcn_module = AnchorGCN2 if self.scalable_run else GCN
+            #'''
             self.encoder = gcn_module(nfeat=nfeat,
                                 nhid=hidden_size,
                                 nclass=nclass,
                                 graph_hops=config.get('graph_hops', 2),
                                 dropout=self.dropout,
                                 batch_norm=config.get('batch_norm', False))
-            '''
-            self.encoder = GCN2(nfeat=nfeat, nhid=hidden_size, nclass=nclass, dropout=self.dropout, with_bias=False)
+            #'''
+            #self.encoder = GCN2(nfeat=nfeat, nhid=hidden_size, nclass=nclass, dropout=self.dropout, with_bias=False)
         elif self.graph_module == 'gat':
             self.encoder = GAT(nfeat=nfeat,
                                 nhid=hidden_size,

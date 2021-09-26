@@ -47,7 +47,7 @@ class ModelHandler(object):
         if not config['no_cuda'] and torch.cuda.is_available():
             print('[ Using CUDA ]')
             self.device = torch.device('cuda' if config['cuda_id'] < 0 else 'cuda:%d' % config['cuda_id'])
-            cudnn.benchmark = True
+            #cudnn.benchmark = True
         else:
             self.device = torch.device('cpu')
         config['device'] = self.device
@@ -61,7 +61,6 @@ class ModelHandler(object):
 
 
         datasets = prepare_datasets(config)
-
 
         # Prepare datasets
         if config['data_type'] in ('network', 'uci'):
@@ -797,7 +796,7 @@ class ModelHandler(object):
             self.model.optimizer.step()
 
         self._update_metrics(loss.item(), {'nloss': -loss.item(), self.model.metric_name: score}, 1, training=training)
-        print(iter_, loss, score)
+        #print(iter_, loss, score)
         return output[idx], labels[idx]
 
 
@@ -837,6 +836,8 @@ class ModelHandler(object):
 
         cur_anchor_adj = F.dropout(cur_anchor_adj, network.config.get('feat_adj_dropout', 0), training=network.training)
 
+
+        '''
         # Update node embeddings via node-anchor-node message passing
         init_agg_vec = network.encoder.graph_encoders[0](init_node_vec, init_adj, anchor_mp=False, batch_norm=False)
         node_vec = (1 - network.graph_skip_conn) * network.encoder.graph_encoders[0](init_node_vec, cur_node_anchor_adj, anchor_mp=True, batch_norm=False) + \
@@ -852,7 +853,7 @@ class ModelHandler(object):
 
         first_node_anchor_adj, first_anchor_adj = cur_node_anchor_adj, cur_anchor_adj
         first_init_agg_vec = network.encoder.graph_encoders[0](init_node_vec, first_node_anchor_adj, anchor_mp=True, batch_norm=False)
-
+        # 这个上面明明计算过了，sb
 
         # Add mid GNN layers
         for encoder in network.encoder.graph_encoders[1:-1]:
@@ -871,6 +872,10 @@ class ModelHandler(object):
         output = (1 - network.graph_skip_conn) * network.encoder.graph_encoders[-1](node_vec, cur_node_anchor_adj, anchor_mp=True, batch_norm=False) + \
                     network.graph_skip_conn * network.encoder.graph_encoders[-1](node_vec, init_adj, anchor_mp=False, batch_norm=False)
         output = F.log_softmax(output, dim=-1)
+        '''
+        first_init_agg_vec, init_agg_vec, node_vec, output = network.encoder(init_node_vec, init_adj, cur_node_anchor_adj, sampled_node_idx, network.graph_skip_conn)
+        anchor_vec = node_vec[sampled_node_idx]
+        first_node_anchor_adj, first_anchor_adj = cur_node_anchor_adj, cur_anchor_adj
         score = self.model.score_func(labels[idx], output[idx])
         loss1 = self.model.criterion(output[idx], labels[idx])
 
@@ -911,6 +916,8 @@ class ModelHandler(object):
             # Compute s x s anchor graph
             cur_anchor_adj = compute_anchor_adj(cur_node_anchor_adj)
 
+
+            '''
             cur_agg_vec = network.encoder.graph_encoders[0](init_node_vec, cur_node_anchor_adj, anchor_mp=True, batch_norm=False)
 
             update_adj_ratio = self.config.get('update_adj_ratio', None)
@@ -922,11 +929,9 @@ class ModelHandler(object):
 
             if network.encoder.graph_encoders[0].bn is not None:
                 node_vec = network.encoder.graph_encoders[0].compute_bn(node_vec)
-
             node_vec = torch.relu(node_vec)
             node_vec = F.dropout(node_vec, self.config.get('gl_dropout', 0), training=network.training)
             anchor_vec = node_vec[sampled_node_idx]
-
 
             # Add mid GNN layers
             for encoder in network.encoder.graph_encoders[1:-1]:
@@ -944,6 +949,8 @@ class ModelHandler(object):
                 node_vec = torch.relu(node_vec)
                 node_vec = F.dropout(node_vec, self.config.get('gl_dropout', 0), training=network.training)
                 anchor_vec = node_vec[sampled_node_idx]
+                print(node_vec)
+                exit(0)
 
 
             cur_agg_vec = network.encoder.graph_encoders[-1](node_vec, cur_node_anchor_adj, anchor_mp=True, batch_norm=False)
@@ -955,6 +962,13 @@ class ModelHandler(object):
                     network.graph_skip_conn * network.encoder.graph_encoders[-1](node_vec, init_adj, anchor_mp=False, batch_norm=False)
 
             output = F.log_softmax(output, dim=-1)
+            '''
+            update_adj_ratio = self.config.get('update_adj_ratio', None)
+            _,_,node_vec,output = network.encoder(init_node_vec, init_adj, cur_node_anchor_adj, sampled_node_idx, network.graph_skip_conn,
+                                           first=False, first_init_agg_vec=first_init_agg_vec, init_agg_vec=init_agg_vec, update_adj_ratio=update_adj_ratio,
+                                           dropout=self.config.get('gl_dropout', 0), first_node_anchor_adj=first_node_anchor_adj)
+            anchor_vec = node_vec[sampled_node_idx]
+            #'''
             score = self.model.score_func(labels[idx], output[idx])
             loss += self.model.criterion(output[idx], labels[idx])
 
@@ -980,6 +994,7 @@ class ModelHandler(object):
             self.model.optimizer.step()
 
         self._update_metrics(loss.item(), {'nloss': -loss.item(), self.model.metric_name: score}, 1, training=training)
+        print(iter_, loss, score)
         return output[idx], labels[idx]
 
     def _run_batch_epoch(self, data_loader, training=True, rl_ratio=0, verbose=10, out_predictions=False):
